@@ -1,0 +1,19 @@
+#CREATE a File " appsettings.json" 
+#PASTE Json file below
+#ENTER your mysql default connection 
+
+
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  },
+  "AllowedHosts": "*",
+  "ConnectionStrings": {
+    "DefaultConnection": "Server=localhost;Database=medicalclinics;user=root;password=yourpassword"
+  
+  }
+
+}
