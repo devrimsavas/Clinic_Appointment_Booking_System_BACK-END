@@ -1,4 +1,4 @@
-//appointment 
+//appointment model
 
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
@@ -29,6 +29,9 @@ namespace ClinicBooking.Models
         [Required]
         public int ClinicId { get; set; }
         public virtual Clinic? Clinic { get; set; }
+
+        public int DurationInMinutes { get; set; }
+
     }
 
 

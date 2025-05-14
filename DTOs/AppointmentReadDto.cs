@@ -1,3 +1,5 @@
+//appointment read dto 
+
 namespace ClinicBooking.DTOs
 {
     public class AppointmentReadDto
@@ -37,5 +39,7 @@ namespace ClinicBooking.DTOs
         /// </summary>
         /// <example>Star Clinic</example>
         public string? ClinicName { get; set; }
+
+        public int DurationInMinutes { get; set; }
     }
 }

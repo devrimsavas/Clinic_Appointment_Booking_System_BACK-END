@@ -39,6 +39,9 @@ namespace ClinicBooking.DTOs
         /// <example>1</example>
         [Required]
         public int ClinicId { get; set; }
+
+        public int DurationInMinutes { get; set; }
+
     }
 }
 

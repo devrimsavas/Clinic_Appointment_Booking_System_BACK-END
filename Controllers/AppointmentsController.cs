@@ -55,6 +55,7 @@ namespace ClinicBooking.Controllers
                 Id = a.Id,
                 AppointmentDateTime = a.AppointmentDateTime,
                 Category = a.Category,
+                DurationInMinutes = a.DurationInMinutes,
                 PatientName = a.Patient != null ? $"{a.Patient.FirstName} {a.Patient.LastName}" : null,
                 DoctorName = a.Doctor != null ? $"{a.Doctor.FirstName} {a.Doctor.LastName}" : null,
                 ClinicName = a.Clinic?.Name
@@ -92,6 +93,7 @@ namespace ClinicBooking.Controllers
                 Id = a.Id,
                 AppointmentDateTime = a.AppointmentDateTime,
                 Category = a.Category,
+                DurationInMinutes = a.DurationInMinutes,
                 PatientName = a.Patient != null ? $"{a.Patient.FirstName} {a.Patient.LastName}" : null,
                 DoctorName = a.Doctor != null ? $"{a.Doctor.FirstName} {a.Doctor.LastName}" : null,
                 ClinicName = a.Clinic?.Name
@@ -127,12 +129,16 @@ namespace ClinicBooking.Controllers
             if (!await _context.Clinics.AnyAsync(c => c.ID == dto.ClinicId))
                 return BadRequest(new { Message = "Clinic ID does not exist." });
 
+            var newStart = dto.AppointmentDateTime;
+            var newEnd = newStart.AddMinutes(dto.DurationInMinutes);
+
             bool timeClash = await _context.Appointments.AnyAsync(a =>
                 a.PatientId == dto.PatientId &&
-                a.AppointmentDateTime == dto.AppointmentDateTime);
+                newStart < a.AppointmentDateTime.AddMinutes(a.DurationInMinutes) &&
+                a.AppointmentDateTime < newEnd);
 
             if (timeClash)
-                return BadRequest(new { Message = "Patient already has an appointment at this time." });
+                return BadRequest(new { Message = "Patient already has an overlapping appointment." });
 
             var appointment = new Appointment
             {
@@ -140,13 +146,13 @@ namespace ClinicBooking.Controllers
                 Category = dto.Category,
                 PatientId = dto.PatientId,
                 DoctorId = dto.DoctorId,
-                ClinicId = dto.ClinicId
+                ClinicId = dto.ClinicId,
+                DurationInMinutes = dto.DurationInMinutes
             };
 
             _context.Appointments.Add(appointment);
             await _context.SaveChangesAsync();
 
-            //  Re-fetch with navigation properties
             var created = await _context.Appointments
                 .Include(a => a.Patient)
                 .Include(a => a.Doctor)
@@ -158,6 +164,7 @@ namespace ClinicBooking.Controllers
                 Id = created!.Id,
                 AppointmentDateTime = created.AppointmentDateTime,
                 Category = created.Category,
+                DurationInMinutes = created.DurationInMinutes,
                 PatientName = created.Patient != null ? $"{created.Patient.FirstName} {created.Patient.LastName}" : null,
                 DoctorName = created.Doctor != null ? $"{created.Doctor.FirstName} {created.Doctor.LastName}" : null,
                 ClinicName = created.Clinic?.Name
@@ -191,7 +198,6 @@ namespace ClinicBooking.Controllers
             if (existing == null)
                 return NotFound(new { Message = "Appointment not found." });
 
-            // FK and validation
             if (!await _context.Patients.AnyAsync(p => p.Id == dto.PatientId))
                 return BadRequest(new { Message = "Invalid patient." });
 
@@ -204,16 +210,31 @@ namespace ClinicBooking.Controllers
             if (string.IsNullOrWhiteSpace(dto.Category))
                 return BadRequest(new { Message = "Category is required." });
 
+            var newStart = dto.AppointmentDateTime;
+            var newEnd = newStart.AddMinutes(dto.DurationInMinutes);
+
+            bool clash = await _context.Appointments.AnyAsync(a =>
+                a.Id != id &&
+                a.PatientId == dto.PatientId &&
+                newStart < a.AppointmentDateTime.AddMinutes(a.DurationInMinutes) &&
+                a.AppointmentDateTime < newEnd);
+
+            if (clash)
+                return BadRequest(new { Message = "Updated time conflicts with another appointment." });
+
             existing.AppointmentDateTime = dto.AppointmentDateTime;
             existing.Category = dto.Category;
             existing.PatientId = dto.PatientId;
             existing.DoctorId = dto.DoctorId;
             existing.ClinicId = dto.ClinicId;
+            existing.DurationInMinutes = dto.DurationInMinutes;
 
             await _context.SaveChangesAsync();
 
             return Ok(new { Message = "Appointment updated successfully." });
         }
+
+
 
         // DELETE
         /// <summary>
