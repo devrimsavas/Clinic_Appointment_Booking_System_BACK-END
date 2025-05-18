@@ -120,6 +120,9 @@ namespace ClinicBooking.Controllers
             if (dto == null || string.IsNullOrWhiteSpace(dto.Category))
                 return BadRequest(new { Message = "Category is required." });
 
+            if (dto.DurationInMinutes <= 0)
+                return BadRequest(new { Message = "Duration must be greater than zero" });
+
             if (!await _context.Patients.AnyAsync(p => p.Id == dto.PatientId))
                 return BadRequest(new { Message = "Patient ID does not exist." });
 
@@ -132,13 +135,36 @@ namespace ClinicBooking.Controllers
             var newStart = dto.AppointmentDateTime;
             var newEnd = newStart.AddMinutes(dto.DurationInMinutes);
 
-            bool timeClash = await _context.Appointments.AnyAsync(a =>
+            // Prevent overlapping appointments for same patient
+            bool patientClash = await _context.Appointments.AnyAsync(a =>
                 a.PatientId == dto.PatientId &&
                 newStart < a.AppointmentDateTime.AddMinutes(a.DurationInMinutes) &&
                 a.AppointmentDateTime < newEnd);
 
-            if (timeClash)
+            if (patientClash)
                 return BadRequest(new { Message = "Patient already has an overlapping appointment." });
+
+            // Prevent overlapping appointments for same doctor
+            bool doctorClash = await _context.Appointments.AnyAsync(a =>
+                a.DoctorId == dto.DoctorId &&
+                newStart < a.AppointmentDateTime.AddMinutes(a.DurationInMinutes) &&
+                a.AppointmentDateTime < newEnd);
+
+            if (doctorClash)
+                return BadRequest(new { Message = "Doctor is already booked at this time." });
+
+            //Prevent appointment before actual time 
+            if (dto.AppointmentDateTime < DateTime.Now)
+                return BadRequest(new { Message = "You cannot book an appointment in the past." });
+
+            //Restrict to working hours (08-18)
+            var time = dto.AppointmentDateTime.TimeOfDay;
+            if (time < TimeSpan.FromHours(8) || time > TimeSpan.FromHours(18))
+                return BadRequest(new { Message = "Appointments must be booked between 08:00 and 18:00." });
+
+
+
+
 
             var appointment = new Appointment
             {
@@ -260,5 +286,136 @@ namespace ClinicBooking.Controllers
 
             return Ok(new { Message = "Appointment deleted successfully." });
         }
+
+
+        //add later SWAGGER do not forget 
+        //SAMPLE 
+
+        /*
+        {
+  "patient": {
+    "firstName": "Jane",
+    "lastName": "Doe",
+    "email": "jane@example.com",
+    "birthDate": "1992-08-15",
+    "gender": "Female"
+  },
+  "appointment": {
+    "appointmentDateTime": "2025-05-24T14:00:00",
+    "category": "Checkup",
+    "doctorId": 2,
+    "clinicId": 1,
+    "durationInMinutes": 30
+  }
+}
+
+        */
+        [HttpPost("with-patient")]
+        [ProducesResponseType(StatusCodes.Status201Created)]
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public async Task<ActionResult<AppointmentReadDto>> CreateAppointmentWithPatient([FromBody] AppointmentWithPatientCreateDto dto)
+        {
+            var p = dto.Patient;
+            var a = dto.Appointment;
+
+            if (string.IsNullOrWhiteSpace(p.FirstName) || string.IsNullOrWhiteSpace(p.LastName) || string.IsNullOrWhiteSpace(p.Email))
+                return BadRequest(new { Message = "Patient info is required." });
+
+            if (string.IsNullOrWhiteSpace(a.Category))
+                return BadRequest(new { Message = "Appointment category is required." });
+
+            if (a.DurationInMinutes <= 0)
+                return BadRequest(new { Message = "Duration must be greater than zero." });
+
+            if (!await _context.Doctors.AnyAsync(d => d.ID == a.DoctorId))
+                return BadRequest(new { Message = "Doctor not found." });
+
+            if (!await _context.Clinics.AnyAsync(c => c.ID == a.ClinicId))
+                return BadRequest(new { Message = "Clinic not found." });
+
+            var patient = await _context.Patients.FirstOrDefaultAsync(x =>
+                x.FirstName == p.FirstName &&
+                x.LastName == p.LastName &&
+                x.Email == p.Email);
+
+            if (patient == null)
+            {
+                patient = new Patient
+                {
+                    FirstName = p.FirstName,
+                    LastName = p.LastName,
+                    Email = p.Email,
+                    BirthDate = p.BirthDate,
+                    Gender = p.Gender
+                };
+
+                _context.Patients.Add(patient);
+                await _context.SaveChangesAsync();
+            }
+
+            var start = a.AppointmentDateTime;
+            var end = start.AddMinutes(a.DurationInMinutes);
+
+            // Check for patient conflict
+            var patientClash = await _context.Appointments.AnyAsync(ap =>
+                ap.PatientId == patient.Id &&
+                start < ap.AppointmentDateTime.AddMinutes(ap.DurationInMinutes) &&
+                ap.AppointmentDateTime < end);
+
+            if (patientClash)
+                return BadRequest(new { Message = "Patient already has a conflicting appointment." });
+
+            // Check for doctor conflict
+            var doctorClash = await _context.Appointments.AnyAsync(ap =>
+                ap.DoctorId == a.DoctorId &&
+                start < ap.AppointmentDateTime.AddMinutes(ap.DurationInMinutes) &&
+                ap.AppointmentDateTime < end);
+
+            if (doctorClash)
+                return BadRequest(new { Message = "Doctor is already booked at this time." });
+
+            //prevent booking in the past and out of working hours
+            if (a.AppointmentDateTime < DateTime.Now)
+                return BadRequest(new { Message = "You cannot book an appointment in the past." });
+
+            var time = a.AppointmentDateTime.TimeOfDay;
+            if (time < TimeSpan.FromHours(8) || time > TimeSpan.FromHours(18))
+                return BadRequest(new { Message = "Appointments must be booked between 08:00 and 18:00." });
+
+
+
+            var newAppointment = new Appointment
+            {
+                AppointmentDateTime = a.AppointmentDateTime,
+                Category = a.Category,
+                PatientId = patient.Id,
+                DoctorId = a.DoctorId,
+                ClinicId = a.ClinicId,
+                DurationInMinutes = a.DurationInMinutes
+            };
+
+            _context.Appointments.Add(newAppointment);
+            await _context.SaveChangesAsync();
+
+            var created = await _context.Appointments
+                .Include(x => x.Patient)
+                .Include(x => x.Doctor)
+                .Include(x => x.Clinic)
+                .FirstOrDefaultAsync(x => x.Id == newAppointment.Id);
+
+            var result = new AppointmentReadDto
+            {
+                Id = created!.Id,
+                AppointmentDateTime = created.AppointmentDateTime,
+                Category = created.Category,
+                DurationInMinutes = created.DurationInMinutes,
+                PatientName = $"{created.Patient?.FirstName} {created.Patient?.LastName}",
+                DoctorName = $"{created.Doctor?.FirstName} {created.Doctor?.LastName}",
+                ClinicName = created.Clinic?.Name
+            };
+
+            return CreatedAtAction(nameof(GetAppointment), new { id = result.Id }, result);
+        }
+
     }
 }
